@@ -4,6 +4,7 @@ import { writeFile, writeTextFile } from '@tauri-apps/plugin-fs'
 import Papa from 'papaparse'
 import * as XLSX from 'xlsx'
 import type { LookupResult } from '../types'
+import { MISSING_COST } from '../constants'
 
 export function useFileOperations() {
   const [copySuccess, setCopySuccess] = useState(false)
@@ -46,11 +47,30 @@ export function useFileOperations() {
       }
       return r.searchTerm
     }
-    const headers = [...(showSearchTerm ? ['Search Term'] : []), 'Item', ...valueCols, 'Status']
+    // A found row whose value cell is empty exports as the explicit MISSING token
+    // (never a blank cell that reads as $0/free in the sheet).
+    const cell = (r: LookupResult, col: string): string => {
+      if (!r.found) return 'NOT FOUND'
+      const v = r.values[col]
+      return v && v.trim() ? v : MISSING_COST
+    }
+    // Include Source whenever results span more than one file, so the exported
+    // sheet matches the on-screen table and provenance isn't lost.
+    const includeSource = new Set(
+      results.filter(r => r.found).map(r => r.sourceFile).filter(Boolean)
+    ).size > 1
+    const headers = [
+      ...(showSearchTerm ? ['Search Term'] : []),
+      'Item',
+      ...valueCols,
+      ...(includeSource ? ['Source'] : []),
+      'Status'
+    ]
     const rows = results.map(r => [
       ...(showSearchTerm ? [r.searchTerm] : []),
       matchedItem(r),
-      ...valueCols.map(col => (r.found ? (r.values[col] ?? '') : 'NOT FOUND')),
+      ...valueCols.map(col => cell(r, col)),
+      ...(includeSource ? [r.sourceFile ?? ''] : []),
       r.found ? 'Found' : 'Not found'
     ])
 

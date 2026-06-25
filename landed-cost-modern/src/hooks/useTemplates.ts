@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react'
 import type { OutputTemplate, LookupResult } from '../types'
 import { DEFAULT_TEMPLATE } from '../themes'
+import { MISSING_COST } from '../constants'
 
 export function useTemplates() {
   const [template, setTemplate] = useState<OutputTemplate>(DEFAULT_TEMPLATE)
@@ -115,24 +116,28 @@ export function useTemplates() {
       const singleCol = printCols.length === 1
       const blocks = order.map(item => {
         const rows = byItem.get(item)!
+        // Keep every requested column (don't filter empties away): a found item
+        // with no cost must show an explicit marker, never collapse to a bare
+        // part number that pastes into a quote looking like a normal line.
         const colVals = printCols.map(col => {
           const seen = new Set<string>()
           const vals: string[] = []
           for (const row of rows) {
             const v = row.values[col]
-            if (v && v !== 'N/A' && !seen.has(v)) {
+            if (v && v !== 'N/A' && v.trim() && !seen.has(v)) {
               seen.add(v)
               vals.push(v)
             }
           }
           return { col, vals }
-        }).filter(cv => cv.vals.length > 0)
+        })
 
         if (singleCol) {
           // Clean one-liner ready to paste into an email: "PART: $cost"
-          return colVals.length > 0 ? `${item}: ${colVals[0].vals.join(', ')}` : item
+          const vals = colVals[0]?.vals ?? []
+          return `${item}: ${vals.length > 0 ? vals.join(', ') : MISSING_COST}`
         }
-        return [item, ...colVals.map(cv => `  ${cv.col}: ${cv.vals.join(', ')}`)].join('\n')
+        return [item, ...colVals.map(cv => `  ${cv.col}: ${cv.vals.length > 0 ? cv.vals.join(', ') : MISSING_COST}`)].join('\n')
       })
 
       output += blocks.join(singleCol ? '\n' : '\n\n')

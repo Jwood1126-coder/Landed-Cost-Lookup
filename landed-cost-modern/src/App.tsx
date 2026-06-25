@@ -42,6 +42,8 @@ import type {
 
 // Import themes and constants
 import { THEMES } from './themes'
+import { MISSING_COST } from './constants'
+import { resolveConfigColumns } from './utils/configColumns'
 
 // Import utilities
 import { detectRelationships as detectRelationshipsUtil } from './utils/relationshipDetection'
@@ -369,24 +371,21 @@ function App() {
         }
 
         if (newSources.length > 0) {
-          // Validate the saved columns still exist in the loaded files. If a
-          // header was renamed, applying a stale column silently makes every
-          // lookup return not-found/N/A, so warn loudly and apply only the
-          // columns that actually exist.
-          const available = new Set(newSources.flatMap(s => s.columns))
-          const missing = [...lastConfig.searchColumns, ...lastConfig.outputColumns]
-            .filter(col => !available.has(col))
-          if (missing.length > 0) {
+          // Validate saved columns against the freshly loaded files via the SAME
+          // helper the manual config-load uses, so a renamed header can't silently
+          // make every lookup return not-found on one path but not the other.
+          const resolved = resolveConfigColumns(lastConfig, newSources)
+          if (resolved.missing.length > 0) {
             setLoadingConfigError(
               `Saved configuration references column(s) not found in the loaded file(s): ` +
-              `${[...new Set(missing)].join(', ')}. Check your column setup before quoting.`
+              `${resolved.missing.join(', ')}. Check your column setup before quoting.`
             )
           }
 
           setDataSources(newSources)
           setActiveSourceIds(newSources.map(s => s.id))
-          setSearchColumns(lastConfig.searchColumns.filter(col => available.has(col)))
-          setOutputColumns(lastConfig.outputColumns.filter(col => available.has(col)))
+          setSearchColumns(resolved.searchColumns)
+          setOutputColumns(resolved.outputColumns)
           setColumnFormats(lastConfig.columnFormats || [])
           setTemplate(lastConfig.template)
           setSearchMode(lastConfig.searchMode)
@@ -662,6 +661,10 @@ function App() {
   // overstate "Found" and not match the number of items the user searched.
   const foundCount = new Set(results.filter(r => r.found).map(r => r.searchTerm)).size
   const notFoundCount = results.filter(r => !r.found).length
+  // Show the Source column whenever results actually span more than one file, so
+  // the table matches the export and provenance isn't dropped (e.g. the same item
+  // returned from two different vendor files).
+  const showSourceColumn = new Set(results.filter(r => r.found).map(r => r.sourceFile).filter(Boolean)).size > 1
   const isGlassTheme = currentTheme.transparency !== undefined
 
   return (
@@ -1138,7 +1141,7 @@ function App() {
                         {outputColumns.filter(c => !searchColumns.includes(c)).map(col => (
                           <th key={col} className="px-3 py-2 text-left text-xs font-medium" style={{ color: 'var(--muted)', borderBottom: '1px solid var(--border)' }}>{col}</th>
                         ))}
-                        {dataSources.length > 1 && (
+                        {showSourceColumn && (
                           <th className="px-3 py-2 text-left text-xs font-medium" style={{ color: 'var(--muted)', borderBottom: '1px solid var(--border)' }}>Source</th>
                         )}
                         <th className="px-3 py-2 text-left text-xs font-medium" style={{ color: 'var(--muted)', borderBottom: '1px solid var(--border)' }}>Status</th>
@@ -1153,10 +1156,10 @@ function App() {
                           <td className="px-3 py-2 font-medium" style={{ color: 'var(--text)', borderBottom: '1px solid var(--border)' }}>{matchedItemOf(r)}</td>
                           {outputColumns.filter(c => !searchColumns.includes(c)).map(col => (
                             <td key={col} className="px-3 py-2" style={{ color: r.found ? 'var(--text)' : 'var(--subtle)', borderBottom: '1px solid var(--border)' }}>
-                              {r.values[col] || 'N/A'}
+                              {r.found ? (r.values[col] && r.values[col].trim() ? r.values[col] : MISSING_COST) : 'N/A'}
                             </td>
                           ))}
-                          {dataSources.length > 1 && (
+                          {showSourceColumn && (
                             <td className="px-3 py-2 text-xs" style={{ color: 'var(--muted)', borderBottom: '1px solid var(--border)' }}>{r.sourceFile || '-'}</td>
                           )}
                           <td className="px-3 py-2" style={{ borderBottom: '1px solid var(--border)' }}>

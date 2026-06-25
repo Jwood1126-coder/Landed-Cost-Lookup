@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react'
 import { open } from '@tauri-apps/plugin-dialog'
 import { parseFileToSource } from '../utils/fileParser'
+import { resolveConfigColumns } from '../utils/configColumns'
 import type { SavedConfig, DataSource, OutputTemplate, ColumnFormat, SearchMode } from '../types'
 
 export function useConfigurations() {
@@ -120,19 +121,29 @@ export function useConfigurations() {
       }
 
       if (newSources.length > 0) {
+        // Validate saved columns against the loaded files (same helper as the
+        // startup auto-load) so a renamed header doesn't silently make every
+        // lookup return not-found on the manual Load path.
+        const resolved = resolveConfigColumns(config, newSources)
+
         // Clear existing data and load new
         setDataSources(newSources)
         setActiveSourceIds(newSources.map(s => s.id))
-        setSearchColumns(config.searchColumns)
-        setOutputColumns(config.outputColumns)
+        setSearchColumns(resolved.searchColumns)
+        setOutputColumns(resolved.outputColumns)
         setColumnFormats(config.columnFormats || [])
         setTemplate(config.template)
         setSearchMode(config.searchMode)
         // Update last used config
         localStorage.setItem('lookup-last-config-id', config.id)
 
-        if (failedFiles.length > 0) {
-          setLoadingConfigError(`Loaded ${newSources.length} file(s). Could not load: ${failedFiles.join(', ')}`)
+        const warnings: string[] = []
+        if (failedFiles.length > 0) warnings.push(`Could not load: ${failedFiles.join(', ')}.`)
+        if (resolved.missing.length > 0) {
+          warnings.push(`Column(s) not found: ${resolved.missing.join(', ')}. Check your column setup before quoting.`)
+        }
+        if (warnings.length > 0) {
+          setLoadingConfigError(`Loaded ${newSources.length} file(s). ${warnings.join(' ')}`)
         }
       } else {
         // More detailed error message

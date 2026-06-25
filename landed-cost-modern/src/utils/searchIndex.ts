@@ -110,7 +110,7 @@ export function buildSearchIndex(
     }
   }
 
-  // Sort for binary search on prefix matching
+  // Stable display order for diagnostics; lookups no longer depend on it.
   sortedValues.sort((a, b) => a.normalized.localeCompare(b.normalized))
 
   return { exactMap, sortedValues, uniqueValues }
@@ -139,28 +139,16 @@ export function prefixLookup(
   const normalized = smartCleaning ? fastNormalize(term) : term.toUpperCase()
   const results: { sourceId: string; rowIndex: number }[] = []
 
-  // Binary search to find start position
-  const values = index.sortedValues
-  let low = 0
-  let high = values.length - 1
-  let startIdx = values.length
-
-  while (low <= high) {
-    const mid = (low + high) >>> 1
-    if (values[mid].normalized >= normalized) {
-      startIdx = mid
-      high = mid - 1
-    } else {
-      low = mid + 1
-    }
-  }
-
-  // Collect all matching prefixes
-  for (let i = startIdx; i < values.length; i++) {
-    if (values[i].normalized.startsWith(normalized)) {
-      results.push({ sourceId: values[i].sourceId, rowIndex: values[i].rowIndex })
-    } else {
-      break // No more matches since array is sorted
+  // Linear scan with startsWith. A binary search here previously assumed
+  // sortedValues was ordered by the same comparison the search used, but the
+  // index is sorted with localeCompare while the search compared by code unit —
+  // a mismatch that could seek to the wrong start and break early, silently
+  // dropping valid matches (any part numbers with '-', '.', '_' or spaces).
+  // Scanning removes that ordering precondition entirely; same cost model as
+  // containsLookup, and these datasets are small.
+  for (const entry of index.sortedValues) {
+    if (entry.normalized.startsWith(normalized)) {
+      results.push({ sourceId: entry.sourceId, rowIndex: entry.rowIndex })
     }
   }
 
