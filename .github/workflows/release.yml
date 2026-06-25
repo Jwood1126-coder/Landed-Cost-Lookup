@@ -1,0 +1,72 @@
+name: Build Desktop App
+
+# How to get a downloadable installer:
+#   - Push a version tag (e.g. `git tag v2.2.0 && git push origin v2.2.0`)
+#     -> builds the Windows installer and publishes it as a GitHub Release.
+#   - Or run this workflow manually from the Actions tab ("Run workflow")
+#     -> builds the installer and uploads it as a downloadable artifact on the run.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    permissions:
+      # Needed for tauri-action to create/upload the GitHub Release.
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: landed-cost-modern/package-lock.json
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: landed-cost-modern/src-tauri -> target
+
+      - name: Install frontend dependencies
+        working-directory: landed-cost-modern
+        run: npm ci
+
+      - name: Build app and (on tag) publish release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: landed-cost-modern
+          # On a tag push this creates a Release named after the tag and
+          # attaches the installers. On manual runs tagName is empty, so it
+          # just builds (artifacts are uploaded by the next step).
+          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+          releaseName: 'Lookup __VERSION__'
+          releaseBody: |
+            ### Landed Cost Lookup — Windows
+
+            Download **Lookup___VERSION___x64-setup.exe** below, run it, and launch
+            **Lookup** from the Start menu. No Python or other setup required.
+          releaseDraft: false
+          prerelease: false
+
+      - name: Upload installer as artifact (manual runs)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: lookup-windows-installer
+          if-no-files-found: error
+          path: |
+            landed-cost-modern/src-tauri/target/release/bundle/nsis/*.exe
+            landed-cost-modern/src-tauri/target/release/bundle/msi/*.msi
