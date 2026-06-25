@@ -18,6 +18,13 @@ export interface DataSource {
 
 // Output template for formatting results
 // Uses simple placeholder format: {ColumnName} will be replaced with actual values
+/** A find/replace rule applied to output values before they are displayed. */
+export interface ValueTransform {
+  find: string
+  replace: string
+  mode: 'exact' | 'contains'
+}
+
 export interface OutputTemplate {
   name: string
   header: string

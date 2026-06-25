@@ -36,7 +36,8 @@ import type {
   ColumnFormat,
   DetectedRelationship,
   SavedConfig,
-  Theme
+  Theme,
+  ValueTransform
 } from './types'
 
 // Import themes and constants
@@ -67,6 +68,37 @@ function App() {
   const [searchColumns, setSearchColumns] = useState<string[]>([])
   const [outputColumns, setOutputColumns] = useState<string[]>([])
   const [columnFormats, setColumnFormats] = useState<ColumnFormat[]>([])
+  // Find/replace rules applied to output values before display (e.g. blank out
+  // a "Go Fish" placeholder so it never reaches a customer quote).
+  const [transforms, setTransforms] = useState<ValueTransform[]>(() => {
+    try {
+      const saved = localStorage.getItem('lookup-transforms')
+      return saved ? JSON.parse(saved) : []
+    } catch { return [] }
+  })
+  useEffect(() => {
+    try { localStorage.setItem('lookup-transforms', JSON.stringify(transforms)) } catch { /* ignore */ }
+  }, [transforms])
+  // Whether to also show the raw term you typed (default off — results show the
+  // single matched item). Two columns named differently across files (e.g. an
+  // item that's "code" in one and "Name" in another) collapse to one Item.
+  const [showSearchTerm, setShowSearchTerm] = useState(() => {
+    try { return localStorage.getItem('lookup-show-search-term') === '1' } catch { return false }
+  })
+  useEffect(() => {
+    try { localStorage.setItem('lookup-show-search-term', showSearchTerm ? '1' : '0') } catch { /* ignore */ }
+  }, [showSearchTerm])
+
+  // The matched item = the value of whichever search/match column actually
+  // matched (so differently-named key columns merge into one identity). Falls
+  // back to the typed term for not-found rows.
+  const matchedItemOf = useCallback((r: { searchTerm: string; values: Record<string, string> }): string => {
+    for (const c of searchColumns) {
+      const v = r.values[`search_${c}`]
+      if (v && v.trim()) return v
+    }
+    return r.searchTerm
+  }, [searchColumns])
 
   // Custom hooks for business logic
   const dataSourcesHook = useDataSources()
@@ -137,6 +169,17 @@ function App() {
   const formatValue = useCallback((rawValue: any, columnName: string): string => {
     let strValue = String(rawValue ?? '')
 
+    // Apply find/replace transforms first (e.g. turn a "Go Fish" placeholder
+    // into blank so it never appears in a quote).
+    for (const t of transforms) {
+      if (!t.find) continue
+      if (t.mode === 'contains') {
+        if (strValue.includes(t.find)) strValue = strValue.split(t.find).join(t.replace)
+      } else if (strValue.trim().toLowerCase() === t.find.trim().toLowerCase()) {
+        strValue = t.replace
+      }
+    }
+
     // Check if this column should be formatted as currency
     const shouldFormat = columnFormats.some(cf =>
       cf.column === columnName && cf.formatAsCurrency
@@ -169,7 +212,7 @@ function App() {
     }
 
     return strValue
-  }, [columnFormats])
+  }, [columnFormats, transforms])
 
   // Search hook
   const searchHook = useSearch(activeSources, searchColumns, outputColumns, formatValue)
@@ -1023,7 +1066,7 @@ function App() {
               </div>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => exportResults(results, outputColumns, 'csv')}
+                  onClick={() => exportResults(results, outputColumns, 'csv', searchColumns, showSearchTerm)}
                   disabled={results.length === 0}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs transition-all"
                   style={{
@@ -1039,7 +1082,7 @@ function App() {
                   CSV
                 </button>
                 <button
-                  onClick={() => exportResults(results, outputColumns, 'xlsx')}
+                  onClick={() => exportResults(results, outputColumns, 'xlsx', searchColumns, showSearchTerm)}
                   disabled={results.length === 0}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs transition-all"
                   style={{
@@ -1088,8 +1131,11 @@ function App() {
                   <table className="w-full text-sm" style={{ borderCollapse: 'collapse' }}>
                     <thead>
                       <tr style={{ background: 'var(--panel-2)' }}>
-                        <th className="px-3 py-2 text-left text-xs font-medium" style={{ color: 'var(--muted)', borderBottom: '1px solid var(--border)' }}>Search Term</th>
-                        {outputColumns.map(col => (
+                        {showSearchTerm && (
+                          <th className="px-3 py-2 text-left text-xs font-medium" style={{ color: 'var(--muted)', borderBottom: '1px solid var(--border)' }}>Search Term</th>
+                        )}
+                        <th className="px-3 py-2 text-left text-xs font-medium" style={{ color: 'var(--muted)', borderBottom: '1px solid var(--border)' }}>Item</th>
+                        {outputColumns.filter(c => !searchColumns.includes(c)).map(col => (
                           <th key={col} className="px-3 py-2 text-left text-xs font-medium" style={{ color: 'var(--muted)', borderBottom: '1px solid var(--border)' }}>{col}</th>
                         ))}
                         {dataSources.length > 1 && (
@@ -1101,8 +1147,11 @@ function App() {
                     <tbody>
                       {results.map((r, i) => (
                         <tr key={i} style={{ background: i % 2 === 0 ? 'transparent' : 'var(--panel-2)' }}>
-                          <td className="px-3 py-2" style={{ color: 'var(--text)', borderBottom: '1px solid var(--border)' }}>{r.searchTerm}</td>
-                          {outputColumns.map(col => (
+                          {showSearchTerm && (
+                            <td className="px-3 py-2" style={{ color: 'var(--subtle)', borderBottom: '1px solid var(--border)' }}>{r.searchTerm}</td>
+                          )}
+                          <td className="px-3 py-2 font-medium" style={{ color: 'var(--text)', borderBottom: '1px solid var(--border)' }}>{matchedItemOf(r)}</td>
+                          {outputColumns.filter(c => !searchColumns.includes(c)).map(col => (
                             <td key={col} className="px-3 py-2" style={{ color: r.found ? 'var(--text)' : 'var(--subtle)', borderBottom: '1px solid var(--border)' }}>
                               {r.values[col] || 'N/A'}
                             </td>
@@ -1177,9 +1226,12 @@ function App() {
             <div className="p-4 space-y-4 max-h-[70vh] overflow-y-auto">
               {/* Search columns */}
               <div>
-                <label className="block text-xs mb-2" style={{ color: 'var(--muted)' }}>
-                  Search Columns <span style={{ color: 'var(--subtle)' }}>— use ↑↓ to reorder; columns to match your input against</span>
+                <label className="block text-xs mb-1" style={{ color: 'var(--muted)' }}>
+                  Match Columns <span style={{ color: 'var(--subtle)' }}>— use ↑↓ to reorder; what your input is matched against</span>
                 </label>
+                <div className="text-xs mb-2" style={{ color: 'var(--subtle)' }}>
+                  List every column that names the same thing across your files (e.g. an item that's "code" in one file and "Name" in another). The one that matches is shown once as the <strong style={{ color: 'var(--muted)' }}>Item</strong> in results.
+                </div>
                 <div className="space-y-2">
                   {searchColumns.map((col, index) => (
                     <div
@@ -1267,9 +1319,12 @@ function App() {
 
               {/* Output columns */}
               <div>
-                <label className="block text-xs mb-2" style={{ color: 'var(--muted)' }}>
-                  Output Columns <span style={{ color: 'var(--subtle)' }}>— use ↑↓ to reorder; values to return when found</span>
+                <label className="block text-xs mb-1" style={{ color: 'var(--muted)' }}>
+                  Value Columns <span style={{ color: 'var(--subtle)' }}>— use ↑↓ to reorder; the values to return (costs, etc.)</span>
                 </label>
+                <div className="text-xs mb-2" style={{ color: 'var(--subtle)' }}>
+                  Just the values you want returned. The Item is shown automatically — no need to add a match column here.
+                </div>
                 <div className="space-y-2">
                   {outputColumns.map((col, index) => (
                     <div
@@ -1360,11 +1415,85 @@ function App() {
                     }}
                   >
                     <option value="">+ Add another output column...</option>
-                    {allColumns.filter(c => !outputColumns.includes(c)).map(col => (
+                    {allColumns.filter(c => !outputColumns.includes(c) && !searchColumns.includes(c)).map(col => (
                       <option key={col} value={col}>{col}</option>
                     ))}
                   </select>
                 </div>
+              </div>
+
+              {/* Results display option */}
+              <div className="pt-3" style={{ borderTop: '1px solid var(--border)' }}>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={showSearchTerm}
+                    onChange={e => setShowSearchTerm(e.target.checked)}
+                  />
+                  <span className="text-xs font-medium" style={{ color: 'var(--text)' }}>
+                    Also show the term I typed (next to the matched Item)
+                  </span>
+                </label>
+                <div className="text-xs mt-1" style={{ color: 'var(--subtle)' }}>
+                  Off by default — results show the single matched Item. Turn on to also see your raw input, e.g. to catch when a broad match pulled a variant.
+                </div>
+              </div>
+
+              {/* Find & Replace (value transforms) */}
+              <div className="pt-3" style={{ borderTop: '1px solid var(--border)' }}>
+                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text)' }}>
+                  Find &amp; Replace values
+                </label>
+                <div className="text-xs mb-2" style={{ color: 'var(--subtle)' }}>
+                  Clean up output values before they appear (e.g. replace a "Go Fish" placeholder with blank). Applies to all output columns.
+                </div>
+                <div className="space-y-2">
+                  {transforms.map((t, i) => (
+                    <div key={i} className="flex gap-2 items-center">
+                      <input
+                        type="text"
+                        placeholder="Find"
+                        value={t.find}
+                        onChange={e => setTransforms(transforms.map((x, xi) => xi === i ? { ...x, find: e.target.value } : x))}
+                        className="flex-1 min-w-0 px-2 py-1.5 text-sm rounded-lg"
+                        style={{ background: 'var(--panel-2)', border: '1px solid var(--border)', color: 'var(--text)', outline: 'none' }}
+                      />
+                      <span className="text-xs" style={{ color: 'var(--subtle)' }}>→</span>
+                      <input
+                        type="text"
+                        placeholder="Replace (blank = remove)"
+                        value={t.replace}
+                        onChange={e => setTransforms(transforms.map((x, xi) => xi === i ? { ...x, replace: e.target.value } : x))}
+                        className="flex-1 min-w-0 px-2 py-1.5 text-sm rounded-lg"
+                        style={{ background: 'var(--panel-2)', border: '1px solid var(--border)', color: 'var(--text)', outline: 'none' }}
+                      />
+                      <select
+                        value={t.mode}
+                        onChange={e => setTransforms(transforms.map((x, xi) => xi === i ? { ...x, mode: e.target.value as 'exact' | 'contains' } : x))}
+                        className="px-2 py-1.5 text-xs rounded-lg"
+                        style={{ background: 'var(--panel-2)', border: '1px solid var(--border)', color: 'var(--text)', outline: 'none' }}
+                        title="Exact: replace the whole cell when it equals Find (case-insensitive). Contains: replace occurrences of Find within the cell."
+                      >
+                        <option value="exact">exact</option>
+                        <option value="contains">contains</option>
+                      </select>
+                      <button
+                        onClick={() => setTransforms(transforms.filter((_, xi) => xi !== i))}
+                        aria-label="Remove rule"
+                        style={{ color: '#f45b69' }}
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <button
+                  onClick={() => setTransforms([...transforms, { find: '', replace: '', mode: 'exact' }])}
+                  className="mt-2 text-xs px-2 py-1 rounded"
+                  style={{ background: 'var(--panel-2)', border: '1px solid var(--border)', color: 'var(--accent)' }}
+                >
+                  + Add a find &amp; replace rule
+                </button>
               </div>
 
               {/* Save configuration */}
@@ -1713,21 +1842,26 @@ function App() {
                 )}
 
                 {/* Main Template (row format) — only used when grouping is OFF */}
-                <div style={{
-                  opacity: template.groupBySearchTerm !== false ? 0.45 : 1,
-                  pointerEvents: template.groupBySearchTerm !== false ? 'none' : 'auto'
-                }}>
-                  <label className="block text-xs font-medium mb-2" style={{ color: 'var(--muted)' }}>
-                    Main Template - Use {'{SearchTerm}'} and {'{ColumnName}'} placeholders
-                  </label>
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-xs font-medium" style={{ color: 'var(--muted)' }}>
+                      Main Template - Use {'{SearchTerm}'} and {'{ColumnName}'} placeholders
+                    </label>
+                    <button
+                      onClick={() => setTemplate({ ...template, header: '', rowFormat: '' })}
+                      className="text-xs px-2 py-1 rounded"
+                      style={{ background: 'var(--panel-2)', border: '1px solid var(--border)', color: 'var(--muted)' }}
+                    >
+                      Clear
+                    </button>
+                  </div>
                   <div className="text-xs mb-2" style={{ color: 'var(--subtle)' }}>
                     {template.groupBySearchTerm !== false
-                      ? 'Ignored while "Group results under each search term" is on. Turn that off to use a custom row format.'
+                      ? 'Currently ignored because "Group text output by matched item" is on (above). You can still edit or clear it here for later.'
                       : 'Add header text, then the row format with placeholders. The row format repeats for each found result.'}
                   </div>
                   <textarea
                     data-template-main
-                    disabled={template.groupBySearchTerm !== false}
                     value={(() => {
                       let text = ''
                       if (template.header) {

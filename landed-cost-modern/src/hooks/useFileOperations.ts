@@ -24,7 +24,9 @@ export function useFileOperations() {
   const exportResults = useCallback(async (
     results: LookupResult[],
     outputColumns: string[],
-    format: 'csv' | 'xlsx' = 'csv'
+    format: 'csv' | 'xlsx' = 'csv',
+    searchColumns: string[] = [],
+    showSearchTerm = false
   ) => {
     if (results.length === 0) {
       setExportError('No results to export')
@@ -33,13 +35,22 @@ export function useFileOperations() {
 
     setExportError('')
     const timestamp = new Date().toISOString().split('T')[0]
-    // Always lead with the search term so every exported price is traceable to
-    // the part that was looked up, and make not-found rows explicit rather than
-    // emitting a row of blanks indistinguishable from a genuine empty price.
-    const headers = ['Search Term', ...outputColumns, 'Status']
+    // Mirror the on-screen model: one merged "Item" (the matched value), then
+    // the value columns (output columns that aren't match columns). Optionally
+    // include the raw typed term. Not-found rows are explicit.
+    const valueCols = outputColumns.filter(c => !searchColumns.includes(c))
+    const matchedItem = (r: LookupResult): string => {
+      for (const c of searchColumns) {
+        const v = r.values[`search_${c}`]
+        if (v && v.trim()) return v
+      }
+      return r.searchTerm
+    }
+    const headers = [...(showSearchTerm ? ['Search Term'] : []), 'Item', ...valueCols, 'Status']
     const rows = results.map(r => [
-      r.searchTerm,
-      ...outputColumns.map(col => (r.found ? (r.values[col] ?? '') : 'NOT FOUND')),
+      ...(showSearchTerm ? [r.searchTerm] : []),
+      matchedItem(r),
+      ...valueCols.map(col => (r.found ? (r.values[col] ?? '') : 'NOT FOUND')),
       r.found ? 'Found' : 'Not found'
     ])
 
