@@ -1,8 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
 import { open } from '@tauri-apps/plugin-dialog'
-import { readFile, readTextFile } from '@tauri-apps/plugin-fs'
-import Papa from 'papaparse'
-import * as XLSX from 'xlsx'
+import { parseFileToSource } from '../utils/fileParser'
 import type { SavedConfig, DataSource, OutputTemplate, ColumnFormat, SearchMode } from '../types'
 
 export function useConfigurations() {
@@ -107,37 +105,7 @@ export function useConfigurations() {
         }
 
         try {
-          const fileExt = fileName.toLowerCase().split('.').pop()
-          let columns: string[] = []
-          let data: Record<string, string>[] = []
-
-          if (fileExt === 'xlsx' || fileExt === 'xls') {
-            // Handle Excel files
-            const fileContent = await readFile(filePath)
-            const workbook = XLSX.read(fileContent, { type: 'array' })
-            const firstSheet = workbook.Sheets[workbook.SheetNames[0]]
-            const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1 }) as string[][]
-
-            if (jsonData.length > 0) {
-              columns = (jsonData[0] || []).map(h => String(h || '').trim()).filter(h => h)
-              data = jsonData.slice(1).map(row => {
-                const rowObj: Record<string, string> = {}
-                columns.forEach((col, ci) => {
-                  rowObj[col] = row[ci] !== undefined ? String(row[ci]) : ''
-                })
-                return rowObj
-              }).filter(row => columns.some(col => row[col] && row[col].trim()))
-            }
-          } else {
-            // Handle CSV files
-            const content = await readTextFile(filePath)
-            const result = Papa.parse(content, {
-              header: true,
-              skipEmptyLines: true
-            })
-            columns = result.meta.fields || []
-            data = result.data as Record<string, string>[]
-          }
+          const { columns, data } = await parseFileToSource(filePath, fileName)
 
           newSources.push({
             id: `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,

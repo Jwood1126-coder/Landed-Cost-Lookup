@@ -1,8 +1,6 @@
 import { useState, useCallback, useMemo } from 'react'
 import { open } from '@tauri-apps/plugin-dialog'
-import { readFile, readTextFile } from '@tauri-apps/plugin-fs'
-import Papa from 'papaparse'
-import * as XLSX from 'xlsx'
+import { parseFileToSource } from '../utils/fileParser'
 import type { DataSource } from '../types'
 
 export function useDataSources() {
@@ -54,56 +52,17 @@ export function useDataSources() {
       for (const filePath of filePaths) {
         try {
           const fileName = filePath.split(/[\\/]/).pop() || filePath
-          const fileExt = fileName.toLowerCase().split('.').pop()
 
-          let columns: string[] = []
-          let data: Record<string, string>[] = []
-
-          if (fileExt === 'xlsx' || fileExt === 'xls') {
-            // Handle Excel files
-            const fileContent = await readFile(filePath)
-            const workbook = XLSX.read(fileContent, { type: 'array' })
-            const firstSheet = workbook.Sheets[workbook.SheetNames[0]]
-            // raw: false returns the cell's *formatted* text, preserving
-            // leading-zero codes ("00457"), long IDs, and dates exactly as the
-            // user sees them in Excel instead of coercing them to numbers.
-            const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1, raw: false }) as string[][]
-
-            if (jsonData.length > 0) {
-              // First row is headers
-              // Keep positional alignment with the data rows: replace blank
-              // header cells with a placeholder name instead of dropping them,
-              // otherwise every column after a blank header shifts left and
-              // reads the wrong values.
-              columns = (jsonData[0] || []).map((h, i) => String(h || '').trim() || `Column_${i + 1}`)
-              // Rest are data rows
-              data = jsonData.slice(1).map(row => {
-                const rowObj: Record<string, string> = {}
-                columns.forEach((col, i) => {
-                  rowObj[col] = row[i] !== undefined ? String(row[i]) : ''
-                })
-                return rowObj
-              }).filter(row => columns.some(col => row[col] && row[col].trim()))
-            }
-          } else {
-            // Handle CSV files
-            const content = await readTextFile(filePath)
-            const result = Papa.parse(content, {
-              header: true,
-              skipEmptyLines: 'greedy'
-            })
-            // Surface parse problems instead of silently quoting from a
-            // truncated/misaligned dataset (e.g. an unterminated quote can
-            // merge rows). A pricing tool must not lose rows quietly.
-            if (result.errors && result.errors.length > 0) {
-              console.error(`CSV parse errors in ${fileName}:`, result.errors)
-              setParseWarning(
-                `"${fileName}" had ${result.errors.length} parse issue(s) (e.g. ${result.errors[0].message}). ` +
-                `Loaded ${result.data.length} rows — verify the data is complete.`
-              )
-            }
-            columns = result.meta.fields || []
-            data = result.data as Record<string, string>[]
+          const { columns, data, errors } = await parseFileToSource(filePath, fileName)
+          // Surface parse problems instead of silently quoting from a
+          // truncated/misaligned dataset (e.g. an unterminated quote can merge
+          // rows). A pricing tool must not lose rows quietly.
+          if (errors.length > 0) {
+            console.error(`Parse issues in ${fileName}:`, errors)
+            setParseWarning(
+              `"${fileName}" had ${errors.length} parse issue(s) (e.g. ${errors[0]}). ` +
+              `Loaded ${data.length} rows — verify the data is complete.`
+            )
           }
 
           const newSource: DataSource = {
@@ -155,42 +114,14 @@ export function useDataSources() {
         if (!source.path) continue
 
         const fileName = source.path.split(/[\\/]/).pop() || source.path
-        const fileExt = fileName.toLowerCase().split('.').pop()
 
-        let columns: string[] = []
-        let data: Record<string, string>[] = []
-
-        if (fileExt === 'xlsx' || fileExt === 'xls') {
-          const fileContent = await readFile(source.path)
-          const workbook = XLSX.read(fileContent, { type: 'array' })
-          const firstSheet = workbook.Sheets[workbook.SheetNames[0]]
-          const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1 }) as string[][]
-
-          if (jsonData.length > 0) {
-            columns = (jsonData[0] || []).map(h => String(h || '').trim()).filter(h => h)
-            data = jsonData.slice(1).map(row => {
-              const rowObj: Record<string, string> = {}
-              columns.forEach((col, i) => {
-                rowObj[col] = row[i] !== undefined ? String(row[i]) : ''
-              })
-              return rowObj
-            }).filter(row => columns.some(col => row[col] && row[col].trim()))
-          }
-        } else {
-          const content = await readTextFile(source.path)
-          const result = Papa.parse(content, {
-            header: true,
-            skipEmptyLines: 'greedy'
-          })
-          if (result.errors && result.errors.length > 0) {
-            console.error(`CSV parse errors in ${source.name}:`, result.errors)
-            setParseWarning(
-              `"${source.name}" had ${result.errors.length} parse issue(s) on refresh. ` +
-              `Loaded ${result.data.length} rows — verify the data is complete.`
-            )
-          }
-          columns = result.meta.fields || []
-          data = result.data as Record<string, string>[]
+        const { columns, data, errors } = await parseFileToSource(source.path, fileName)
+        if (errors.length > 0) {
+          console.error(`Parse issues in ${source.name}:`, errors)
+          setParseWarning(
+            `"${source.name}" had ${errors.length} parse issue(s) on refresh. ` +
+            `Loaded ${data.length} rows — verify the data is complete.`
+          )
         }
 
         setDataSources(prev =>

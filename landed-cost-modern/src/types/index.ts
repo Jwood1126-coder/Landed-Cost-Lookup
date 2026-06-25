@@ -28,6 +28,9 @@ export interface OutputTemplate {
   // term and labels every value with its column name. When false, it uses the
   // freeform rowFormat (one line per matching row).
   groupBySearchTerm?: boolean
+  // Which output columns to include in the TEXT output (independent of the
+  // table, which always shows all output columns). undefined = show all.
+  textColumns?: string[]
 }
 
 // Column formatting options

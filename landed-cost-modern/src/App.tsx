@@ -1,9 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
-import Papa from 'papaparse'
-import * as XLSX from 'xlsx'
 import { open } from '@tauri-apps/plugin-dialog'
 import { getVersion } from '@tauri-apps/api/app'
-import { readTextFile, readFile } from '@tauri-apps/plugin-fs'
 import {
   Upload,
   Search,
@@ -45,6 +42,7 @@ import { THEMES } from './themes'
 
 // Import utilities
 import { detectRelationships as detectRelationshipsUtil } from './utils/relationshipDetection'
+import { parseFileToSource } from './utils/fileParser'
 
 // Import components
 import { LookupIcon } from './components/LookupIcon'
@@ -310,18 +308,14 @@ function App() {
           if (!filePath) continue
 
           try {
-            const content = await readTextFile(filePath)
-            const result = Papa.parse(content, {
-              header: true,
-              skipEmptyLines: true
-            })
-
-            const columns = result.meta.fields || []
+            // Route by extension (xlsx vs csv) — reading an .xlsx as text here
+            // was producing a garbage "PK…[Content_Types].xml" column.
+            const { columns, data } = await parseFileToSource(filePath, fileName)
             newSources.push({
               id: `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
               name: fileName,
               path: filePath,
-              data: result.data as Record<string, string>[],
+              data,
               columns
             })
           } catch {
@@ -446,33 +440,7 @@ function App() {
       for (const filePath of filePaths) {
         try {
           const fileName = filePath.split(/[\\/]/).pop() || filePath
-          const fileExt = fileName.toLowerCase().split('.').pop()
-
-          let columns: string[] = []
-          let data: Record<string, string>[] = []
-
-          if (fileExt === 'xlsx' || fileExt === 'xls') {
-            const fileContent = await readFile(filePath)
-            const workbook = XLSX.read(fileContent, { type: 'array' })
-            const firstSheet = workbook.Sheets[workbook.SheetNames[0]]
-            const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1 }) as string[][]
-
-            if (jsonData.length > 0) {
-              columns = (jsonData[0] || []).map(h => String(h || '').trim()).filter(h => h)
-              data = jsonData.slice(1).map(row => {
-                const rowObj: Record<string, string> = {}
-                columns.forEach((col, i) => {
-                  rowObj[col] = row[i] !== undefined ? String(row[i]) : ''
-                })
-                return rowObj
-              }).filter(row => columns.some(col => row[col] && row[col].trim()))
-            }
-          } else {
-            const content = await readTextFile(filePath)
-            const result = Papa.parse(content, { header: true, skipEmptyLines: true })
-            columns = result.meta.fields || []
-            data = result.data as Record<string, string>[]
-          }
+          const { columns, data } = await parseFileToSource(filePath, fileName)
 
           const newSource: DataSource = {
             id: `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
@@ -1491,32 +1459,7 @@ function App() {
                       key={i}
                       onClick={async () => {
                         try {
-                          const fileExt = file.name.toLowerCase().split('.').pop()
-                          let columns: string[] = []
-                          let data: Record<string, string>[] = []
-
-                          if (fileExt === 'xlsx' || fileExt === 'xls') {
-                            const fileContent = await readFile(file.path)
-                            const workbook = XLSX.read(fileContent, { type: 'array' })
-                            const firstSheet = workbook.Sheets[workbook.SheetNames[0]]
-                            const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1 }) as string[][]
-                            if (jsonData.length > 0) {
-                              columns = (jsonData[0] || []).map(h => String(h || '').trim()).filter(h => h)
-                              data = jsonData.slice(1).map(row => {
-                                const rowObj: Record<string, string> = {}
-                                columns.forEach((col, ci) => {
-                                  rowObj[col] = row[ci] !== undefined ? String(row[ci]) : ''
-                                })
-                                return rowObj
-                              }).filter(row => columns.some(col => row[col] && row[col].trim()))
-                            }
-                          } else {
-                            const content = await readTextFile(file.path)
-                            const result = Papa.parse(content, { header: true, skipEmptyLines: true })
-                            columns = result.meta.fields || []
-                            data = result.data as Record<string, string>[]
-                          }
-
+                          const { columns, data } = await parseFileToSource(file.path, file.name)
                           const newSource: DataSource = {
                             id: `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
                             name: file.name,
@@ -1589,7 +1532,7 @@ function App() {
                 />
               </div>
 
-              {/* Group-by-search-term toggle */}
+              {/* Grouped text-output toggle */}
               <div>
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
@@ -1598,15 +1541,48 @@ function App() {
                     onChange={e => setTemplate({ ...template, groupBySearchTerm: e.target.checked })}
                   />
                   <span className="text-xs font-medium" style={{ color: 'var(--text)' }}>
-                    Group results under each search term, with labels
+                    Group text output by matched item, with labels
                   </span>
                 </label>
                 <div className="text-xs mt-1" style={{ color: 'var(--subtle)' }}>
                   {template.groupBySearchTerm !== false
-                    ? 'Each item prints as a block with one labeled line per column. The row format below is ignored.'
+                    ? 'Each matched part number is listed with the cost column(s) you pick below. The row format further down is ignored.'
                     : 'Using the custom row format below (one line per matching row).'}
                 </div>
               </div>
+
+              {/* Which output columns appear in the TEXT output */}
+              {template.groupBySearchTerm !== false && outputColumns.filter(c => !searchColumns.includes(c)).length > 0 && (
+                <div>
+                  <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text)' }}>
+                    Columns to show in the text output
+                  </label>
+                  <div className="text-xs mb-2" style={{ color: 'var(--subtle)' }}>
+                    The table always shows every column; this only trims the copyable text. The matched part number is always shown as the label.
+                  </div>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                    {outputColumns.filter(c => !searchColumns.includes(c)).map(col => {
+                      const costCols = outputColumns.filter(c => !searchColumns.includes(c))
+                      const selected = !template.textColumns || template.textColumns.includes(col)
+                      return (
+                        <label key={col} className="flex items-center gap-2 cursor-pointer text-xs" style={{ color: 'var(--text)' }}>
+                          <input
+                            type="checkbox"
+                            checked={selected}
+                            onChange={e => {
+                              const set = new Set(template.textColumns ?? costCols)
+                              if (e.target.checked) set.add(col)
+                              else set.delete(col)
+                              setTemplate({ ...template, textColumns: costCols.filter(c => set.has(c)) })
+                            }}
+                          />
+                          {col}
+                        </label>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
 
               {/* Template Editor - Separate Fields */}
               <div className="space-y-4">

@@ -81,7 +81,14 @@ export function useTemplates() {
             .filter(k => k !== '__search__' && !k.startsWith('search_'))
       // Don't repeat the identifier column as its own value line.
       const costCols = allCols.filter(c => !searchColumns.includes(c))
-      const printCols = costCols.length > 0 ? costCols : allCols
+      let printCols = costCols.length > 0 ? costCols : allCols
+      // Let the user limit the TEXT output to specific columns (the table still
+      // shows everything). undefined = show all.
+      if (template.textColumns && template.textColumns.length > 0) {
+        const wanted = template.textColumns
+        const filtered = printCols.filter(c => wanted.includes(c))
+        if (filtered.length > 0) printCols = filtered
+      }
 
       // The real matched part number = the value of whichever search column
       // matched. Fall back to the typed term only if that's unavailable.
