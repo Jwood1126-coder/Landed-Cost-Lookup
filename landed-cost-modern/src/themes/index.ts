@@ -142,7 +142,8 @@ export const THEMES: Theme[] = [
 export const DEFAULT_TEMPLATE: OutputTemplate = {
   name: 'Simple Format',
   header: 'Results:\n',
-  rowFormat: '{SearchTerm}: {column1}',  // Will be customized when output columns are selected
+  rowFormat: '{SearchTerm}: {column1}',  // Used only when grouping is turned off
   notFoundHeader: '\nNot found:\n',
-  footer: ''
+  footer: '',
+  groupBySearchTerm: true
 }

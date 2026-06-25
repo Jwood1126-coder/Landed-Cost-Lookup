@@ -24,6 +24,10 @@ export interface OutputTemplate {
   rowFormat: string  // Simple string with {ColumnName} placeholders
   notFoundHeader: string
   footer: string
+  // When true (default), the text output groups all results under each search
+  // term and labels every value with its column name. When false, it uses the
+  // freeform rowFormat (one line per matching row).
+  groupBySearchTerm?: boolean
 }
 
 // Column formatting options

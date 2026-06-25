@@ -186,8 +186,10 @@ function App() {
     setSmartCleaning,
     showDiagnostics,
     results,
+    setResults,
     isLoading,
     hasSearched,
+    setHasSearched,
     inputError,
     setInputError,
     performLookup
@@ -381,13 +383,36 @@ function App() {
   // Generate output when results change
   useEffect(() => {
     if (results.length > 0) {
-      generateOutput(results)
-      // Auto-switch to table view when multiple output columns
-      if (outputColumns.length > 1) {
-        setViewMode('table')
-      }
+      generateOutput(results, outputColumns)
     }
-  }, [results, generateOutput, outputColumns.length])
+  }, [results, generateOutput, outputColumns])
+
+  // Clear stale results whenever anything that affects the lookup changes, so
+  // the on-screen numbers (and the copyable output) always correspond to the
+  // current inputs/columns/mode — never a previous search.
+  useEffect(() => {
+    setResults([])
+    setHasSearched(false)
+    setOutputDraft('')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inputText, searchMode, fuzzyMode, smartCleaning, searchColumns, outputColumns, activeSources])
+
+  // Close the open modal(s) on Escape — a universal expectation that was
+  // missing everywhere.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      setShowColumnSelect(false)
+      setShowTemplateEditor(false)
+      setShowThemePicker(false)
+      setShowDataManager(false)
+      setShowHelp(false)
+      setShowConfigManager(false)
+      setShowSupplyChain(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   // Detect relationships/formulas in data (uses utility function)
   const detectRelationships = useCallback((sources: DataSource[]) => {
@@ -603,7 +628,10 @@ function App() {
 
   // Add a column to the row format
 
-  const foundCount = results.filter(r => r.found).length
+  // Count distinct search TERMS found/missing, not result rows. One item can
+  // produce several rows (multiple files/vendors), so counting rows would
+  // overstate "Found" and not match the number of items the user searched.
+  const foundCount = new Set(results.filter(r => r.found).map(r => r.searchTerm)).size
   const notFoundCount = results.filter(r => !r.found).length
   const isGlassTheme = currentTheme.transparency !== undefined
 
@@ -820,6 +848,7 @@ function App() {
             >
               <button
                 onClick={() => setSearchMode('exact')}
+                title="Exact match - the safest for pricing. The item code must match exactly."
                 className="px-3 py-1.5 text-xs font-medium transition-all"
                 style={{
                   background: searchMode === 'exact' ? 'var(--accent-strong)' : 'var(--panel-2)',
@@ -830,6 +859,7 @@ function App() {
               </button>
               <button
                 onClick={() => setSearchMode('startswith')}
+                title="Matches any item whose code STARTS WITH your term — can return several variants (e.g. ...-VITON)."
                 className="px-3 py-1.5 text-xs font-medium transition-all"
                 style={{
                   background: searchMode === 'startswith' ? 'var(--accent-strong)' : 'var(--panel-2)',
@@ -841,6 +871,7 @@ function App() {
               </button>
               <button
                 onClick={() => setSearchMode('contains')}
+                title="Matches any item that CONTAINS your term anywhere — broadest, and can return a different part's price. Use with care for quoting."
                 className="px-3 py-1.5 text-xs font-medium transition-all"
                 style={{
                   background: searchMode === 'contains' ? 'var(--accent-strong)' : 'var(--panel-2)',
@@ -860,7 +891,7 @@ function App() {
                 border: `1px solid ${fuzzyMode ? 'var(--accent)' : 'var(--border)'}`,
                 borderRadius: '6px'
               }}
-              title={`Fuzzy matching (${fuzzyThreshold}% threshold) - finds close matches even with typos`}
+              title={`Fuzzy matching (${fuzzyThreshold}% threshold) - a FALLBACK only used for terms that get no exact/prefix/contains match. Finds close matches despite typos.`}
             >
               Fuzzy
             </button>
@@ -873,7 +904,7 @@ function App() {
                 border: `1px solid ${smartCleaning ? 'var(--accent)' : 'var(--border)'}`,
                 borderRadius: '6px'
               }}
-              title="Smart cleaning - removes leading zeros, normalizes whitespace, ignores special chars"
+              title="Smart cleaning - matches case-insensitively and ignores extra/zero-width spaces. Leading zeros and punctuation are kept (00123 is not the same part as 123)."
             >
               Smart
             </button>
@@ -888,10 +919,17 @@ function App() {
               backdropFilter: isGlassTheme ? 'blur(10px)' : undefined
             }}
           >
-            <label className="text-xs mb-2" style={{ color: 'var(--muted)' }}>Search terms (one per line)</label>
+            <label className="text-xs mb-2" style={{ color: 'var(--muted)' }}>Search terms (one per line) — Ctrl+Enter to look up</label>
             <textarea
               value={inputText}
               onChange={(e) => { setInputText(e.target.value); setInputError('') }}
+              onKeyDown={(e) => {
+                // Ctrl/Cmd+Enter runs the lookup; plain Enter still inserts a newline.
+                if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                  e.preventDefault()
+                  performLookup()
+                }
+              }}
               placeholder="Paste values to look up..."
               className="flex-1 w-full resize-none px-3 py-2 text-sm transition-all"
               style={{
@@ -956,11 +994,15 @@ function App() {
           <div className="flex-shrink-0 flex gap-3">
             <div className="flex-1 min-w-[120px] p-4" style={{ background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: '8px' }}>
               <div className="text-3xl font-semibold" style={{ color: 'var(--accent)' }}>{foundCount}</div>
-              <div className="text-xs mt-1" style={{ color: 'var(--muted)' }}>Found</div>
+              <div className="text-xs mt-1 flex items-center gap-1" style={{ color: 'var(--muted)' }}>
+                <Check className="w-3 h-3" style={{ color: 'var(--accent)' }} /> Found
+              </div>
             </div>
             <div className="flex-1 min-w-[120px] p-4" style={{ background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: '8px' }}>
-              <div className="text-3xl font-semibold" style={{ color: 'var(--muted)' }}>{notFoundCount}</div>
-              <div className="text-xs mt-1" style={{ color: 'var(--muted)' }}>Missing</div>
+              <div className="text-3xl font-semibold" style={{ color: notFoundCount > 0 ? '#f45b69' : 'var(--muted)' }}>{notFoundCount}</div>
+              <div className="text-xs mt-1 flex items-center gap-1" style={{ color: 'var(--muted)' }}>
+                <X className="w-3 h-3" style={{ color: notFoundCount > 0 ? '#f45b69' : 'var(--subtle)' }} /> Missing
+              </div>
             </div>
           </div>
 
@@ -1144,7 +1186,7 @@ function App() {
               </button>
             </div>
 
-            <div className="p-4 space-y-4">
+            <div className="p-4 space-y-4 max-h-[70vh] overflow-y-auto">
               {/* Search columns */}
               <div>
                 <label className="block text-xs mb-2" style={{ color: 'var(--muted)' }}>
@@ -1422,7 +1464,7 @@ function App() {
                 <div className="text-center py-8">
                   <Database className="w-10 h-10 mx-auto mb-3" style={{ color: 'var(--subtle)' }} strokeWidth={1} />
                   <div className="text-sm" style={{ color: 'var(--muted)' }}>No data sources</div>
-                  <div className="text-xs mt-1" style={{ color: 'var(--subtle)' }}>Click "Add CSV" to get started</div>
+                  <div className="text-xs mt-1" style={{ color: 'var(--subtle)' }}>Click "Upload" to get started</div>
                 </div>
               )}
             </div>
@@ -1538,6 +1580,25 @@ function App() {
                 />
               </div>
 
+              {/* Group-by-search-term toggle */}
+              <div>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={template.groupBySearchTerm !== false}
+                    onChange={e => setTemplate({ ...template, groupBySearchTerm: e.target.checked })}
+                  />
+                  <span className="text-xs font-medium" style={{ color: 'var(--text)' }}>
+                    Group results under each search term, with labels
+                  </span>
+                </label>
+                <div className="text-xs mt-1" style={{ color: 'var(--subtle)' }}>
+                  {template.groupBySearchTerm !== false
+                    ? 'Each item prints as a block with one labeled line per column. The row format below is ignored.'
+                    : 'Using the custom row format below (one line per matching row).'}
+                </div>
+              </div>
+
               {/* Template Editor - Separate Fields */}
               <div className="space-y-4">
                 {/* Column placeholder buttons */}
@@ -1615,16 +1676,22 @@ function App() {
                   </div>
                 )}
 
-                {/* Main Template */}
-                <div>
+                {/* Main Template (row format) — only used when grouping is OFF */}
+                <div style={{
+                  opacity: template.groupBySearchTerm !== false ? 0.45 : 1,
+                  pointerEvents: template.groupBySearchTerm !== false ? 'none' : 'auto'
+                }}>
                   <label className="block text-xs font-medium mb-2" style={{ color: 'var(--muted)' }}>
                     Main Template - Use {'{SearchTerm}'} and {'{ColumnName}'} placeholders
                   </label>
                   <div className="text-xs mb-2" style={{ color: 'var(--subtle)' }}>
-                    Add header text, then the row format with placeholders. The row format repeats for each found result.
+                    {template.groupBySearchTerm !== false
+                      ? 'Ignored while "Group results under each search term" is on. Turn that off to use a custom row format.'
+                      : 'Add header text, then the row format with placeholders. The row format repeats for each found result.'}
                   </div>
                   <textarea
                     data-template-main
+                    disabled={template.groupBySearchTerm !== false}
                     value={(() => {
                       let text = ''
                       if (template.header) {

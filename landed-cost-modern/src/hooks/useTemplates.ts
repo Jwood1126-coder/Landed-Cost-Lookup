@@ -54,7 +54,7 @@ export function useTemplates() {
     setTemplate(templateOrUpdater)
   }, [])
 
-  const generateOutput = useCallback((lookupResults: LookupResult[]) => {
+  const generateOutput = useCallback((lookupResults: LookupResult[], outputColumns: string[] = []) => {
     const found = lookupResults.filter(r => r.found)
     const notFound = lookupResults.filter(r => !r.found)
 
@@ -68,7 +68,51 @@ export function useTemplates() {
       }
     }
 
-    if (found.length > 0) {
+    // Grouped + labeled mode (default): one block per search term, every value
+    // prefixed with its column name, and repeated rows consolidated.
+    const grouped = template.groupBySearchTerm !== false
+
+    if (found.length > 0 && grouped) {
+      // Which columns to print, in the user's chosen order. Fall back to the
+      // value keys if no explicit output columns were passed.
+      const cols = outputColumns.length > 0
+        ? outputColumns
+        : Array.from(new Set(found.flatMap(r => Object.keys(r.values))))
+            .filter(k => k !== '__search__' && !k.startsWith('search_'))
+
+      // Group results by search term, preserving the order they first appeared.
+      const order: string[] = []
+      const byTerm = new Map<string, LookupResult[]>()
+      for (const r of found) {
+        if (!byTerm.has(r.searchTerm)) {
+          byTerm.set(r.searchTerm, [])
+          order.push(r.searchTerm)
+        }
+        byTerm.get(r.searchTerm)!.push(r)
+      }
+
+      const blocks = order.map(term => {
+        const rows = byTerm.get(term)!
+        const lines = [term]
+        for (const col of cols) {
+          // Collect the distinct, non-empty values for this column across all
+          // of the term's matching rows (e.g. several vendor prices).
+          const seen = new Set<string>()
+          const vals: string[] = []
+          for (const row of rows) {
+            const v = row.values[col]
+            if (v && v !== 'N/A' && !seen.has(v)) {
+              seen.add(v)
+              vals.push(v)
+            }
+          }
+          if (vals.length > 0) lines.push(`  ${col}: ${vals.join(', ')}`)
+        }
+        return lines.join('\n')
+      })
+
+      output += blocks.join('\n\n')
+    } else if (found.length > 0) {
       const lines = found.map(r => {
         // Replace placeholders in template string with actual values
         let line = template.rowFormat

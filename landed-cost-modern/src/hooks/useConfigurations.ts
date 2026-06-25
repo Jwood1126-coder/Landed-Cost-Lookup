@@ -188,7 +188,7 @@ export function useConfigurations() {
     try {
       const selected = await open({
         multiple: true,
-        filters: [{ name: 'CSV Files', extensions: ['csv'] }]
+        filters: [{ name: 'Spreadsheet Files', extensions: ['csv', 'xlsx', 'xls'] }]
       })
 
       if (!selected) return
