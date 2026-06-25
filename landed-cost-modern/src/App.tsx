@@ -23,6 +23,8 @@ import {
   Settings,
   Star,
   GripVertical,
+  ChevronUp,
+  ChevronDown,
   RefreshCw,
   Clock,
   TrendingUp
@@ -594,6 +596,15 @@ function App() {
     setDragOverColIndex(null)
     setDragColType(null)
   }, [draggedColIndex, dragColType, searchColumns, outputColumns])
+
+  // Click-based reorder — works regardless of HTML5 drag support.
+  const moveColumn = useCallback((type: 'search' | 'output', index: number, dir: -1 | 1) => {
+    const cols = type === 'search' ? [...searchColumns] : [...outputColumns]
+    const target = index + dir
+    if (target < 0 || target >= cols.length) return
+    ;[cols[index], cols[target]] = [cols[target], cols[index]]
+    ;(type === 'search' ? setSearchColumns : setOutputColumns)(cols)
+  }, [searchColumns, outputColumns])
 
   const handleColDragEnd = useCallback(() => {
     setDraggedColIndex(null)
@@ -1167,7 +1178,7 @@ function App() {
               {/* Search columns */}
               <div>
                 <label className="block text-xs mb-2" style={{ color: 'var(--muted)' }}>
-                  Search Columns <span style={{ color: 'var(--subtle)' }}>— drag to reorder, columns to match your input against</span>
+                  Search Columns <span style={{ color: 'var(--subtle)' }}>— use ↑↓ to reorder; columns to match your input against</span>
                 </label>
                 <div className="space-y-2">
                   {searchColumns.map((col, index) => (
@@ -1186,7 +1197,27 @@ function App() {
                         padding: '2px'
                       }}
                     >
-                      <div className="cursor-grab active:cursor-grabbing p-1" style={{ color: 'var(--muted)' }}>
+                      <div className="flex flex-col" style={{ color: 'var(--muted)' }}>
+                        <button
+                          onClick={() => moveColumn('search', index, -1)}
+                          disabled={index === 0}
+                          title="Move up"
+                          aria-label="Move up"
+                          style={{ opacity: index === 0 ? 0.3 : 1, cursor: index === 0 ? 'default' : 'pointer', lineHeight: 0 }}
+                        >
+                          <ChevronUp className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => moveColumn('search', index, 1)}
+                          disabled={index === searchColumns.length - 1}
+                          title="Move down"
+                          aria-label="Move down"
+                          style={{ opacity: index === searchColumns.length - 1 ? 0.3 : 1, cursor: index === searchColumns.length - 1 ? 'default' : 'pointer', lineHeight: 0 }}
+                        >
+                          <ChevronDown className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      <div className="cursor-grab active:cursor-grabbing p-1" style={{ color: 'var(--subtle)' }} title="Drag to reorder">
                         <GripVertical className="w-4 h-4" />
                       </div>
                       <select
@@ -1237,7 +1268,7 @@ function App() {
               {/* Output columns */}
               <div>
                 <label className="block text-xs mb-2" style={{ color: 'var(--muted)' }}>
-                  Output Columns <span style={{ color: 'var(--subtle)' }}>— drag to reorder, values to return when found</span>
+                  Output Columns <span style={{ color: 'var(--subtle)' }}>— use ↑↓ to reorder; values to return when found</span>
                 </label>
                 <div className="space-y-2">
                   {outputColumns.map((col, index) => (
@@ -1256,7 +1287,27 @@ function App() {
                         padding: '2px'
                       }}
                     >
-                      <div className="cursor-grab active:cursor-grabbing p-1" style={{ color: 'var(--muted)' }}>
+                      <div className="flex flex-col" style={{ color: 'var(--muted)' }}>
+                        <button
+                          onClick={() => moveColumn('output', index, -1)}
+                          disabled={index === 0}
+                          title="Move up"
+                          aria-label="Move up"
+                          style={{ opacity: index === 0 ? 0.3 : 1, cursor: index === 0 ? 'default' : 'pointer', lineHeight: 0 }}
+                        >
+                          <ChevronUp className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => moveColumn('output', index, 1)}
+                          disabled={index === outputColumns.length - 1}
+                          title="Move down"
+                          aria-label="Move down"
+                          style={{ opacity: index === outputColumns.length - 1 ? 0.3 : 1, cursor: index === outputColumns.length - 1 ? 'default' : 'pointer', lineHeight: 0 }}
+                        >
+                          <ChevronDown className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      <div className="cursor-grab active:cursor-grabbing p-1" style={{ color: 'var(--subtle)' }} title="Drag to reorder">
                         <GripVertical className="w-4 h-4" />
                       </div>
                       <select
