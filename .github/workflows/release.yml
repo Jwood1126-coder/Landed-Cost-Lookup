@@ -1,10 +1,12 @@
 name: Build Desktop App
 
-# How to get a downloadable installer:
+# Produces a single portable Lookup.exe — no installer, no wizard.
+# Download the file, double-click, done.
+#
 #   - Push a version tag (e.g. `git tag v2.2.0 && git push origin v2.2.0`)
-#     -> builds the Windows installer and publishes it as a GitHub Release.
+#     -> attaches Lookup.exe to a GitHub Release.
 #   - Or run this workflow manually from the Actions tab ("Run workflow")
-#     -> builds the installer and uploads it as a downloadable artifact on the run.
+#     -> uploads Lookup.exe as a downloadable artifact on the run.
 
 on:
   push:
@@ -16,7 +18,7 @@ jobs:
   build-windows:
     runs-on: windows-latest
     permissions:
-      # Needed for tauri-action to create/upload the GitHub Release.
+      # Needed to create/upload the GitHub Release.
       contents: write
 
     steps:
@@ -42,31 +44,31 @@ jobs:
         working-directory: landed-cost-modern
         run: npm ci
 
-      - name: Build app and (on tag) publish release
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          projectPath: landed-cost-modern
-          # On a tag push this creates a Release named after the tag and
-          # attaches the installers. On manual runs tagName is empty, so it
-          # just builds (artifacts are uploaded by the next step).
-          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
-          releaseName: 'Lookup __VERSION__'
-          releaseBody: |
-            ### Landed Cost Lookup — Windows
+      # --no-bundle compiles the standalone .exe but skips the NSIS/MSI
+      # installers, so we get a single portable executable to run directly.
+      - name: Build portable Windows exe
+        working-directory: landed-cost-modern
+        run: npm run tauri build -- --no-bundle
 
-            Download **Lookup___VERSION___x64-setup.exe** below, run it, and launch
-            **Lookup** from the Start menu. No Python or other setup required.
-          releaseDraft: false
-          prerelease: false
-
-      - name: Upload installer as artifact (manual runs)
+      - name: Upload portable exe (manual runs)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         uses: actions/upload-artifact@v4
         with:
-          name: lookup-windows-installer
+          name: Lookup-windows
           if-no-files-found: error
-          path: |
-            landed-cost-modern/src-tauri/target/release/bundle/nsis/*.exe
-            landed-cost-modern/src-tauri/target/release/bundle/msi/*.msi
+          path: landed-cost-modern/src-tauri/target/release/Lookup.exe
+
+      - name: Publish release with portable exe (tag runs)
+        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            "landed-cost-modern/src-tauri/target/release/Lookup.exe#Lookup.exe" \
+            --title "Lookup ${GITHUB_REF_NAME}" \
+            --notes "Portable app — **download Lookup.exe below and double-click to run.** No installation, no setup, no Python." \
+            --clobber || \
+          gh release upload "${GITHUB_REF_NAME}" \
+            "landed-cost-modern/src-tauri/target/release/Lookup.exe#Lookup.exe" \
+            --clobber
