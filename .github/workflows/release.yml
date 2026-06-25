@@ -50,13 +50,23 @@ jobs:
         working-directory: landed-cost-modern
         run: npm run tauri build -- --no-bundle
 
+      # --no-bundle leaves the raw binary named after the Cargo crate
+      # (landed-cost-lookup.exe), so stage a copy named Lookup.exe for download.
+      - name: Stage Lookup.exe
+        shell: bash
+        run: |
+          exe=$(ls landed-cost-modern/src-tauri/target/release/*.exe | head -n1)
+          echo "Built binary: $exe"
+          cp "$exe" "Lookup.exe"
+          ls -la Lookup.exe
+
       - name: Upload portable exe (manual runs)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         uses: actions/upload-artifact@v4
         with:
           name: Lookup-windows
           if-no-files-found: error
-          path: landed-cost-modern/src-tauri/target/release/Lookup.exe
+          path: Lookup.exe
 
       - name: Publish release with portable exe (tag runs)
         if: ${{ startsWith(github.ref, 'refs/tags/') }}
@@ -64,11 +74,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          gh release create "${GITHUB_REF_NAME}" \
-            "landed-cost-modern/src-tauri/target/release/Lookup.exe#Lookup.exe" \
+          gh release create "${GITHUB_REF_NAME}" "Lookup.exe" \
             --title "Lookup ${GITHUB_REF_NAME}" \
             --notes "Portable app — **download Lookup.exe below and double-click to run.** No installation, no setup, no Python." \
-            --clobber || \
-          gh release upload "${GITHUB_REF_NAME}" \
-            "landed-cost-modern/src-tauri/target/release/Lookup.exe#Lookup.exe" \
-            --clobber
+          || gh release upload "${GITHUB_REF_NAME}" "Lookup.exe" --clobber
