@@ -1,0 +1,123 @@
+@import "tailwindcss";
+
+:root {
+  /* Design tokens */
+  --bg: #0f1115;
+  --panel: #161922;
+  --panel-2: #1b1f2a;
+  --text: #e7e9ee;
+  --muted: #9aa1b5;
+  --subtle: #6b7385;
+  --accent: #2dd4bf;
+  --accent-strong: #14b8a6;
+  --warn: #f5a524;
+  --error: #f45b69;
+  --border: #232736;
+
+  /* Typography */
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  /* Spacing scale */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+
+  /* Radii */
+  --radius: 6px;
+
+  /* Shadows */
+  --shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--panel);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--subtle);
+}
+
+/* Textarea scrollbar */
+textarea::-webkit-scrollbar {
+  width: 6px;
+}
+
+textarea::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+textarea::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+/* Prevent text selection on UI elements */
+.no-select {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Focus ring utility */
+.focus-ring:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+/* Monaco editor customizations */
+.monaco-editor {
+  border-radius: var(--radius) !important;
+}
+
+.monaco-editor .margin {
+  background: var(--panel-2) !important;
+}
+
+.monaco-editor .monaco-editor-background {
+  background: var(--panel-2) !important;
+}
+
+/* Animations */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* Select dropdown styling */
+select option {
+  background: var(--panel);
+  color: var(--text);
+  padding: 8px;
+}

@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#2dd4bf;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#14b8a6;stop-opacity:1" />
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="4" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background circle -->
+  <circle cx="64" cy="64" r="57.6" fill="#0f1115"/>
+  <circle cx="64" cy="64" r="53.76" fill="#161922" stroke="#232736" stroke-width="4"/>
+
+  <!-- Magnifying glass -->
+  <g filter="url(#glow)">
+    <!-- Glass circle -->
+    <circle cx="53.76" cy="53.76" r="32"
+            fill="none" stroke="url(#grad)" stroke-width="8"/>
+
+    <!-- Handle -->
+    <line x1="76.16" y1="76.16"
+          x2="99.84" y2="99.84"
+          stroke="url(#grad)" stroke-width="10.4" stroke-linecap="round"/>
+
+    <!-- Data lines inside glass -->
+    <line x1="37.76" y1="44.16"
+          x2="69.75999999999999" y2="44.16"
+          stroke="#2dd4bf" stroke-width="4.8" stroke-linecap="round" opacity="0.8"/>
+    <line x1="37.76" y1="55.36"
+          x2="60.16" y2="55.36"
+          stroke="#2dd4bf" stroke-width="4.8" stroke-linecap="round" opacity="0.7"/>
+    <line x1="37.76" y1="66.56"
+          x2="64.96" y2="66.56"
+          stroke="#2dd4bf" stroke-width="4.8" stroke-linecap="round" opacity="0.5"/>
+  </g>
+</svg>
