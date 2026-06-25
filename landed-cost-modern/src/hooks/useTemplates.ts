@@ -54,7 +54,7 @@ export function useTemplates() {
     setTemplate(templateOrUpdater)
   }, [])
 
-  const generateOutput = useCallback((lookupResults: LookupResult[], outputColumns: string[] = []) => {
+  const generateOutput = useCallback((lookupResults: LookupResult[], outputColumns: string[] = [], searchColumns: string[] = []) => {
     const found = lookupResults.filter(r => r.found)
     const notFound = lookupResults.filter(r => !r.found)
 
@@ -68,35 +68,47 @@ export function useTemplates() {
       }
     }
 
-    // Grouped + labeled mode (default): one block per search term, every value
-    // prefixed with its column name, and repeated rows consolidated.
+    // Grouped mode (default): label each line by the ACTUAL matched part
+    // number, not the typed search term — so "FS0318-16" (Contains mode) that
+    // matched both FS0318-16 and FS0318-16-ZN lists each real part with its own
+    // cost, instead of stamping the search term on every row.
     const grouped = template.groupBySearchTerm !== false
 
     if (found.length > 0 && grouped) {
-      // Which columns to print, in the user's chosen order. Fall back to the
-      // value keys if no explicit output columns were passed.
-      const cols = outputColumns.length > 0
+      const allCols = outputColumns.length > 0
         ? outputColumns
         : Array.from(new Set(found.flatMap(r => Object.keys(r.values))))
             .filter(k => k !== '__search__' && !k.startsWith('search_'))
+      // Don't repeat the identifier column as its own value line.
+      const costCols = allCols.filter(c => !searchColumns.includes(c))
+      const printCols = costCols.length > 0 ? costCols : allCols
 
-      // Group results by search term, preserving the order they first appeared.
-      const order: string[] = []
-      const byTerm = new Map<string, LookupResult[]>()
-      for (const r of found) {
-        if (!byTerm.has(r.searchTerm)) {
-          byTerm.set(r.searchTerm, [])
-          order.push(r.searchTerm)
+      // The real matched part number = the value of whichever search column
+      // matched. Fall back to the typed term only if that's unavailable.
+      const itemOf = (r: LookupResult): string => {
+        for (const c of searchColumns) {
+          const v = r.values[`search_${c}`]
+          if (v && v.trim()) return v
         }
-        byTerm.get(r.searchTerm)!.push(r)
+        return r.searchTerm
       }
 
-      const blocks = order.map(term => {
-        const rows = byTerm.get(term)!
-        const lines = [term]
-        for (const col of cols) {
-          // Collect the distinct, non-empty values for this column across all
-          // of the term's matching rows (e.g. several vendor prices).
+      // Group by matched part number, preserving first-seen order.
+      const order: string[] = []
+      const byItem = new Map<string, LookupResult[]>()
+      for (const r of found) {
+        const item = itemOf(r)
+        if (!byItem.has(item)) {
+          byItem.set(item, [])
+          order.push(item)
+        }
+        byItem.get(item)!.push(r)
+      }
+
+      const singleCol = printCols.length === 1
+      const blocks = order.map(item => {
+        const rows = byItem.get(item)!
+        const colVals = printCols.map(col => {
           const seen = new Set<string>()
           const vals: string[] = []
           for (const row of rows) {
@@ -106,12 +118,17 @@ export function useTemplates() {
               vals.push(v)
             }
           }
-          if (vals.length > 0) lines.push(`  ${col}: ${vals.join(', ')}`)
+          return { col, vals }
+        }).filter(cv => cv.vals.length > 0)
+
+        if (singleCol) {
+          // Clean one-liner ready to paste into an email: "PART: $cost"
+          return colVals.length > 0 ? `${item}: ${colVals[0].vals.join(', ')}` : item
         }
-        return lines.join('\n')
+        return [item, ...colVals.map(cv => `  ${cv.col}: ${cv.vals.join(', ')}`)].join('\n')
       })
 
-      output += blocks.join('\n\n')
+      output += blocks.join(singleCol ? '\n' : '\n\n')
     } else if (found.length > 0) {
       const lines = found.map(r => {
         // Replace placeholders in template string with actual values

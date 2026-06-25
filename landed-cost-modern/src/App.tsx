@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from 'react'
 import Papa from 'papaparse'
 import * as XLSX from 'xlsx'
 import { open } from '@tauri-apps/plugin-dialog'
+import { getVersion } from '@tauri-apps/api/app'
 import { readTextFile, readFile } from '@tauri-apps/plugin-fs'
 import {
   Upload,
@@ -196,6 +197,7 @@ function App() {
   } = searchHook
 
   // UI state
+  const [appVersion, setAppVersion] = useState('')
   const [showColumnSelect, setShowColumnSelect] = useState(false)
   const [showTemplateEditor, setShowTemplateEditor] = useState(false)
   const [showThemePicker, setShowThemePicker] = useState(false)
@@ -383,9 +385,9 @@ function App() {
   // Generate output when results change
   useEffect(() => {
     if (results.length > 0) {
-      generateOutput(results, outputColumns)
+      generateOutput(results, outputColumns, searchColumns)
     }
-  }, [results, generateOutput, outputColumns])
+  }, [results, generateOutput, outputColumns, searchColumns])
 
   // Clear stale results whenever anything that affects the lookup changes, so
   // the on-screen numbers (and the copyable output) always correspond to the
@@ -396,6 +398,11 @@ function App() {
     setOutputDraft('')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inputText, searchMode, fuzzyMode, smartCleaning, searchColumns, outputColumns, activeSources])
+
+  // Show the app version so the user always knows which build they're running.
+  useEffect(() => {
+    getVersion().then(setAppVersion).catch(() => {})
+  }, [])
 
   // Close the open modal(s) on Escape — a universal expectation that was
   // missing everywhere.
@@ -669,7 +676,9 @@ function App() {
               <LookupIcon size={24} />
             </div>
             <div>
-              <h1 className="text-xl font-semibold" style={{ color: 'var(--text)' }}>Lookup</h1>
+              <h1 className="text-xl font-semibold" style={{ color: 'var(--text)' }}>
+                Lookup {appVersion && <span className="text-xs font-normal" style={{ color: 'var(--subtle)' }}>v{appVersion}</span>}
+              </h1>
               <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>Multi-file data search</p>
             </div>
           </div>
