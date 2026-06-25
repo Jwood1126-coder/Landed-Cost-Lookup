@@ -149,14 +149,20 @@ function App() {
       const candidate = strValue.trim().replace(/^\$\s*/, '').trim()
 
       if (/^-?\d+(\.\d+)?$/.test(candidate)) {
-        const num = parseFloat(candidate)
-        if (!isNaN(num)) {
-          // Round to cents; the tiny nudge corrects binary-float artifacts
-          // (e.g. 1.005 -> 1.01 instead of 1.00) without affecting real values.
-          const rounded = Math.round(num * 100 + (num >= 0 ? 1e-6 : -1e-6)) / 100
-          const sign = rounded < 0 ? '-' : ''
-          strValue = `${sign}$${Math.abs(rounded).toFixed(2)}`
+        // Show the EXACT value from the file — never round, so a cost like
+        // 12.7341 is not silently turned into 12.73 (which also makes genuinely
+        // different costs look like duplicates). Only pad up to a minimum of 2
+        // decimals for a clean currency look; extra precision is preserved.
+        const sign = candidate.startsWith('-') ? '-' : ''
+        let digits = candidate.replace(/^-/, '')
+        const dot = digits.indexOf('.')
+        if (dot === -1) {
+          digits += '.00'
+        } else {
+          const decimals = digits.length - dot - 1
+          if (decimals < 2) digits += '0'.repeat(2 - decimals)
         }
+        strValue = `${sign}$${digits}`
       }
       // else: ambiguous (commas) or non-numeric ("CALL", "TBD") -> leave as-is.
     }
