@@ -43,7 +43,7 @@ import type {
 
 // Import themes and constants
 import { THEMES } from './themes'
-import { MISSING_COST } from './constants'
+import { EMPTY_VALUE } from './constants'
 import { resolveConfigColumns } from './utils/configColumns'
 
 // Import utilities
@@ -254,6 +254,46 @@ function App() {
   const [viewMode, setViewMode] = useState<'text' | 'table'>('text')
   const [sortColumn, setSortColumn] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+
+  // Order results for display. sortColumn === null preserves the pasted input
+  // order (so a column round-trips to/from Excel unchanged); a chosen column
+  // sorts the table, the copyable text, AND the export together. Numeric values
+  // sort numerically; empty / not-found values always sort last.
+  const orderResults = (rows: LookupResult[]): LookupResult[] => {
+    if (sortColumn === null) return rows
+    const key = sortColumn
+    const valueOf = (r: LookupResult): string => {
+      if (key === '__item__') return matchedItemOf(r)
+      if (key === '__search__') return r.searchTerm
+      if (key === '__source__') return r.sourceFile || ''
+      if (key === '__status__') return r.found ? 'Found' : 'Missing'
+      return r.found ? (r.values[key] ?? '') : ''
+    }
+    const asNumber = (s: string): number | null => {
+      const c = s.trim().replace(/^\$\s*/, '').replace(/,/g, '')
+      return /^-?\d+(\.\d+)?$/.test(c) ? parseFloat(c) : null
+    }
+    return rows
+      .map((r, i): [LookupResult, number] => [r, i])
+      .sort(([a, ai], [b, bi]) => {
+        const av = valueOf(a)
+        const bv = valueOf(b)
+        const aEmpty = !av.trim()
+        const bEmpty = !bv.trim()
+        if (aEmpty || bEmpty) {
+          if (aEmpty && bEmpty) return ai - bi
+          return aEmpty ? 1 : -1 // empty / not-found values always sort last
+        }
+        const an = asNumber(av)
+        const bn = asNumber(bv)
+        const c = an !== null && bn !== null
+          ? an - bn
+          : av.localeCompare(bv, undefined, { numeric: true, sensitivity: 'base' })
+        if (c === 0) return ai - bi // stable: tie-break on input order
+        return sortDir === 'asc' ? c : -c
+      })
+      .map(([r]) => r)
+  }
   const [currentTheme, setCurrentTheme] = useState<Theme>(THEMES[0])
 
   // Drag state for column reordering
@@ -426,9 +466,9 @@ function App() {
   // Generate output when results change
   useEffect(() => {
     if (results.length > 0) {
-      generateOutput(results, outputColumns, searchColumns)
+      generateOutput(orderResults(results), outputColumns, searchColumns)
     }
-  }, [results, generateOutput, outputColumns, searchColumns])
+  }, [results, sortColumn, sortDir, generateOutput, outputColumns, searchColumns])
 
   // Clear stale results whenever anything that affects the lookup changes, so
   // the on-screen numbers (and the copyable output) always correspond to the
@@ -670,43 +710,10 @@ function App() {
   const showSourceColumn = new Set(results.filter(r => r.found).map(r => r.sourceFile).filter(Boolean)).size > 1
   const isGlassTheme = currentTheme.transparency !== undefined
 
-  // Optional table sort. Default (sortColumn === null) preserves input order so a
-  // pasted column round-trips to/from Excel unchanged. Clicking a header sorts
-  // ascending, again descending, a third time clears back to input order. Sorting
-  // is view-only — the text output and CSV/Excel export stay in input order.
-  const sortValue = (r: LookupResult, key: string): string => {
-    if (key === '__item__') return matchedItemOf(r)
-    if (key === '__search__') return r.searchTerm
-    if (key === '__source__') return r.sourceFile || ''
-    if (key === '__status__') return r.found ? 'Found' : 'Missing'
-    return r.found ? (r.values[key] ?? '') : ''
-  }
-  const asNumber = (s: string): number | null => {
-    const c = s.trim().replace(/^\$\s*/, '').replace(/,/g, '')
-    return /^-?\d+(\.\d+)?$/.test(c) ? parseFloat(c) : null
-  }
-  const displayResults = sortColumn === null
-    ? results
-    : results
-        .map((r, i): [LookupResult, number] => [r, i])
-        .sort(([a, ai], [b, bi]) => {
-          const av = sortValue(a, sortColumn)
-          const bv = sortValue(b, sortColumn)
-          const aEmpty = !av.trim()
-          const bEmpty = !bv.trim()
-          if (aEmpty || bEmpty) {
-            if (aEmpty && bEmpty) return ai - bi
-            return aEmpty ? 1 : -1 // empty / not-found values always sort last
-          }
-          const an = asNumber(av)
-          const bn = asNumber(bv)
-          const c = an !== null && bn !== null
-            ? an - bn
-            : av.localeCompare(bv, undefined, { numeric: true, sensitivity: 'base' })
-          if (c === 0) return ai - bi // stable: tie-break on input order
-          return sortDir === 'asc' ? c : -c
-        })
-        .map(([r]) => r)
+  // The table, the copyable text, and the export all render from this one
+  // ordered list, so the chosen sort (or the default pasted order) is consistent
+  // everywhere.
+  const displayResults = orderResults(results)
 
   const toggleSort = (key: string) => {
     if (sortColumn !== key) { setSortColumn(key); setSortDir('asc') }
@@ -1125,10 +1132,42 @@ function App() {
                     <Table className="w-3.5 h-3.5" strokeWidth={1.5} />
                   </button>
                 </div>
+                {/* Sort control — works in both views (the text tab has no headers to click) */}
+                {results.length > 0 && (
+                  <div className="flex items-center gap-1">
+                    <span className="text-[10px] uppercase" style={{ color: 'var(--subtle)' }}>Sort</span>
+                    <select
+                      value={sortColumn ?? ''}
+                      onChange={(e) => { const v = e.target.value; if (!v) { setSortColumn(null) } else { setSortColumn(v); setSortDir('asc') } }}
+                      className="text-xs px-1.5 py-1 rounded"
+                      style={{ background: 'var(--panel-2)', color: 'var(--text)', border: '1px solid var(--border)', cursor: 'pointer' }}
+                      title="Reorder the results — applies to the table, the text, and the export"
+                    >
+                      <option value="">Input order</option>
+                      <option value="__item__">Item</option>
+                      {showSearchTerm && <option value="__search__">Search Term</option>}
+                      {outputColumns.filter(c => !searchColumns.includes(c)).map(col => (
+                        <option key={col} value={col}>{col}</option>
+                      ))}
+                      {showSourceColumn && <option value="__source__">Source</option>}
+                      <option value="__status__">Status</option>
+                    </select>
+                    {sortColumn !== null && (
+                      <button
+                        onClick={() => setSortDir(d => (d === 'asc' ? 'desc' : 'asc'))}
+                        className="px-1.5 py-1 rounded text-xs"
+                        style={{ background: 'var(--panel-2)', color: 'var(--text)', border: '1px solid var(--border)', cursor: 'pointer' }}
+                        title={sortDir === 'asc' ? 'Ascending — click for descending' : 'Descending — click for ascending'}
+                      >
+                        {sortDir === 'asc' ? '▲' : '▼'}
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => exportResults(results, outputColumns, 'csv', searchColumns, showSearchTerm)}
+                  onClick={() => exportResults(displayResults, outputColumns, 'csv', searchColumns, showSearchTerm)}
                   disabled={results.length === 0}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs transition-all"
                   style={{
@@ -1144,7 +1183,7 @@ function App() {
                   CSV
                 </button>
                 <button
-                  onClick={() => exportResults(results, outputColumns, 'xlsx', searchColumns, showSearchTerm)}
+                  onClick={() => exportResults(displayResults, outputColumns, 'xlsx', searchColumns, showSearchTerm)}
                   disabled={results.length === 0}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs transition-all"
                   style={{
@@ -1209,7 +1248,7 @@ function App() {
                           <td className="px-3 py-2 font-medium" style={{ color: 'var(--text)', borderBottom: '1px solid var(--border)' }}>{matchedItemOf(r)}</td>
                           {outputColumns.filter(c => !searchColumns.includes(c)).map(col => (
                             <td key={col} className="px-3 py-2" style={{ color: r.found ? 'var(--text)' : 'var(--subtle)', borderBottom: '1px solid var(--border)' }}>
-                              {r.found ? (r.values[col] && r.values[col].trim() ? r.values[col] : MISSING_COST) : 'N/A'}
+                              {r.found ? (r.values[col] && r.values[col].trim() ? r.values[col] : EMPTY_VALUE) : 'N/A'}
                             </td>
                           ))}
                           {showSourceColumn && (

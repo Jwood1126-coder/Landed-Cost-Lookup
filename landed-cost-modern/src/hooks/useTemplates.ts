@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from 'react'
 import type { OutputTemplate, LookupResult } from '../types'
 import { DEFAULT_TEMPLATE } from '../themes'
-import { MISSING_COST } from '../constants'
+import { EMPTY_VALUE } from '../constants'
 
 export function useTemplates() {
   const [template, setTemplate] = useState<OutputTemplate>(DEFAULT_TEMPLATE)
@@ -135,9 +135,9 @@ export function useTemplates() {
         if (singleCol) {
           // Clean one-liner ready to paste into an email: "PART: $cost"
           const vals = colVals[0]?.vals ?? []
-          return `${item}: ${vals.length > 0 ? vals.join(', ') : MISSING_COST}`
+          return `${item}: ${vals.length > 0 ? vals.join(', ') : EMPTY_VALUE}`
         }
-        return [item, ...colVals.map(cv => `  ${cv.col}: ${cv.vals.length > 0 ? cv.vals.join(', ') : MISSING_COST}`)].join('\n')
+        return [item, ...colVals.map(cv => `  ${cv.col}: ${cv.vals.length > 0 ? cv.vals.join(', ') : EMPTY_VALUE}`)].join('\n')
       })
 
       output += blocks.join(singleCol ? '\n' : '\n\n')

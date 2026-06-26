@@ -4,7 +4,7 @@ import { writeFile, writeTextFile } from '@tauri-apps/plugin-fs'
 import Papa from 'papaparse'
 import * as XLSX from 'xlsx'
 import type { LookupResult } from '../types'
-import { MISSING_COST } from '../constants'
+import { EMPTY_VALUE } from '../constants'
 
 export function useFileOperations() {
   const [copySuccess, setCopySuccess] = useState(false)
@@ -52,7 +52,7 @@ export function useFileOperations() {
     const cell = (r: LookupResult, col: string): string => {
       if (!r.found) return 'NOT FOUND'
       const v = r.values[col]
-      return v && v.trim() ? v : MISSING_COST
+      return v && v.trim() ? v : EMPTY_VALUE
     }
     // Include Source whenever results span more than one file, so the exported
     // sheet matches the on-screen table and provenance isn't lost.
