@@ -715,6 +715,26 @@ function App() {
   // everywhere.
   const displayResults = orderResults(results)
 
+  // Group consecutive rows by matched Item so multi-source / multi-vendor
+  // duplicates nest under a single Item label (shown once, with an ×N count on
+  // the first row) instead of repeating the identifier on every row. Grouping
+  // follows ADJACENT runs, so it tracks whatever order is active.
+  const groupedRows = displayResults.map((r, i) => {
+    const item = matchedItemOf(r)
+    const isGroupStart = i === 0 || matchedItemOf(displayResults[i - 1]) !== item
+    return { r, i, item, isGroupStart, runLength: 1, groupEven: false }
+  })
+  let groupOrdinal = -1
+  for (let gi = 0; gi < groupedRows.length; gi++) {
+    if (groupedRows[gi].isGroupStart) {
+      groupOrdinal++
+      let n = 1
+      while (gi + n < groupedRows.length && !groupedRows[gi + n].isGroupStart) n++
+      groupedRows[gi].runLength = n
+    }
+    groupedRows[gi].groupEven = groupOrdinal % 2 === 0
+  }
+
   const toggleSort = (key: string) => {
     if (sortColumn !== key) { setSortColumn(key); setSortDir('asc') }
     else if (sortDir === 'asc') { setSortDir('desc') }
@@ -1240,12 +1260,21 @@ function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {displayResults.map((r, i) => (
-                        <tr key={i} style={{ background: i % 2 === 0 ? 'transparent' : 'var(--panel-2)' }}>
+                      {groupedRows.map(({ r, i, item, isGroupStart, runLength, groupEven }) => (
+                        <tr key={i} style={{ background: groupEven ? 'transparent' : 'var(--panel-2)', borderTop: isGroupStart && i > 0 ? '2px solid var(--border)' : undefined }}>
                           {showSearchTerm && (
-                            <td className="px-3 py-2" style={{ color: 'var(--subtle)', borderBottom: '1px solid var(--border)' }}>{r.searchTerm}</td>
+                            <td className="px-3 py-2" style={{ color: 'var(--subtle)', borderBottom: '1px solid var(--border)' }}>{isGroupStart ? r.searchTerm : ''}</td>
                           )}
-                          <td className="px-3 py-2 font-medium" style={{ color: 'var(--text)', borderBottom: '1px solid var(--border)' }}>{matchedItemOf(r)}</td>
+                          <td className="px-3 py-2 font-medium" style={{ color: 'var(--text)', borderBottom: '1px solid var(--border)', verticalAlign: 'top' }}>
+                            {isGroupStart && (
+                              <span className="inline-flex items-center gap-1.5">
+                                {item}
+                                {runLength > 1 && (
+                                  <span className="px-1.5 py-0.5 rounded text-[10px]" style={{ border: '1px solid var(--border)', color: 'var(--muted)' }} title={`${runLength} matches for this item`}>×{runLength}</span>
+                                )}
+                              </span>
+                            )}
+                          </td>
                           {outputColumns.filter(c => !searchColumns.includes(c)).map(col => (
                             <td key={col} className="px-3 py-2" style={{ color: r.found ? 'var(--text)' : 'var(--subtle)', borderBottom: '1px solid var(--border)' }}>
                               {r.found ? (r.values[col] && r.values[col].trim() ? r.values[col] : EMPTY_VALUE) : 'N/A'}
