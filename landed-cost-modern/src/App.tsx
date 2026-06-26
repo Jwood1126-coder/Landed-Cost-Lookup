@@ -37,7 +37,8 @@ import type {
   DetectedRelationship,
   SavedConfig,
   Theme,
-  ValueTransform
+  ValueTransform,
+  LookupResult
 } from './types'
 
 // Import themes and constants
@@ -251,6 +252,8 @@ function App() {
   const [showConfigManager, setShowConfigManager] = useState(false)
   const [showSupplyChain, setShowSupplyChain] = useState(false)
   const [viewMode, setViewMode] = useState<'text' | 'table'>('text')
+  const [sortColumn, setSortColumn] = useState<string | null>(null)
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
   const [currentTheme, setCurrentTheme] = useState<Theme>(THEMES[0])
 
   // Drag state for column reordering
@@ -666,6 +669,62 @@ function App() {
   // returned from two different vendor files).
   const showSourceColumn = new Set(results.filter(r => r.found).map(r => r.sourceFile).filter(Boolean)).size > 1
   const isGlassTheme = currentTheme.transparency !== undefined
+
+  // Optional table sort. Default (sortColumn === null) preserves input order so a
+  // pasted column round-trips to/from Excel unchanged. Clicking a header sorts
+  // ascending, again descending, a third time clears back to input order. Sorting
+  // is view-only — the text output and CSV/Excel export stay in input order.
+  const sortValue = (r: LookupResult, key: string): string => {
+    if (key === '__item__') return matchedItemOf(r)
+    if (key === '__search__') return r.searchTerm
+    if (key === '__source__') return r.sourceFile || ''
+    if (key === '__status__') return r.found ? 'Found' : 'Missing'
+    return r.found ? (r.values[key] ?? '') : ''
+  }
+  const asNumber = (s: string): number | null => {
+    const c = s.trim().replace(/^\$\s*/, '').replace(/,/g, '')
+    return /^-?\d+(\.\d+)?$/.test(c) ? parseFloat(c) : null
+  }
+  const displayResults = sortColumn === null
+    ? results
+    : results
+        .map((r, i): [LookupResult, number] => [r, i])
+        .sort(([a, ai], [b, bi]) => {
+          const av = sortValue(a, sortColumn)
+          const bv = sortValue(b, sortColumn)
+          const aEmpty = !av.trim()
+          const bEmpty = !bv.trim()
+          if (aEmpty || bEmpty) {
+            if (aEmpty && bEmpty) return ai - bi
+            return aEmpty ? 1 : -1 // empty / not-found values always sort last
+          }
+          const an = asNumber(av)
+          const bn = asNumber(bv)
+          const c = an !== null && bn !== null
+            ? an - bn
+            : av.localeCompare(bv, undefined, { numeric: true, sensitivity: 'base' })
+          if (c === 0) return ai - bi // stable: tie-break on input order
+          return sortDir === 'asc' ? c : -c
+        })
+        .map(([r]) => r)
+
+  const toggleSort = (key: string) => {
+    if (sortColumn !== key) { setSortColumn(key); setSortDir('asc') }
+    else if (sortDir === 'asc') { setSortDir('desc') }
+    else { setSortColumn(null) }
+  }
+
+  const SortTh = (label: string, key: string, reactKey?: string) => (
+    <th
+      key={reactKey}
+      onClick={() => toggleSort(key)}
+      className="px-3 py-2 text-left text-xs font-medium select-none"
+      style={{ color: sortColumn === key ? 'var(--text)' : 'var(--muted)', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap', cursor: 'pointer' }}
+      title="Click to sort; click again to reverse; a third time clears (back to your pasted order)"
+    >
+      {label}{sortColumn === key ? (sortDir === 'asc' ? ' ▲' : ' ▼') : ''}
+    </th>
+  )
 
   return (
     <div
@@ -1134,21 +1193,15 @@ function App() {
                   <table className="w-full text-sm" style={{ borderCollapse: 'collapse' }}>
                     <thead>
                       <tr style={{ background: 'var(--panel-2)' }}>
-                        {showSearchTerm && (
-                          <th className="px-3 py-2 text-left text-xs font-medium" style={{ color: 'var(--muted)', borderBottom: '1px solid var(--border)' }}>Search Term</th>
-                        )}
-                        <th className="px-3 py-2 text-left text-xs font-medium" style={{ color: 'var(--muted)', borderBottom: '1px solid var(--border)' }}>Item</th>
-                        {outputColumns.filter(c => !searchColumns.includes(c)).map(col => (
-                          <th key={col} className="px-3 py-2 text-left text-xs font-medium" style={{ color: 'var(--muted)', borderBottom: '1px solid var(--border)' }}>{col}</th>
-                        ))}
-                        {showSourceColumn && (
-                          <th className="px-3 py-2 text-left text-xs font-medium" style={{ color: 'var(--muted)', borderBottom: '1px solid var(--border)' }}>Source</th>
-                        )}
-                        <th className="px-3 py-2 text-left text-xs font-medium" style={{ color: 'var(--muted)', borderBottom: '1px solid var(--border)' }}>Status</th>
+                        {showSearchTerm && SortTh('Search Term', '__search__')}
+                        {SortTh('Item', '__item__')}
+                        {outputColumns.filter(c => !searchColumns.includes(c)).map(col => SortTh(col, col, col))}
+                        {showSourceColumn && SortTh('Source', '__source__')}
+                        {SortTh('Status', '__status__')}
                       </tr>
                     </thead>
                     <tbody>
-                      {results.map((r, i) => (
+                      {displayResults.map((r, i) => (
                         <tr key={i} style={{ background: i % 2 === 0 ? 'transparent' : 'var(--panel-2)' }}>
                           {showSearchTerm && (
                             <td className="px-3 py-2" style={{ color: 'var(--subtle)', borderBottom: '1px solid var(--border)' }}>{r.searchTerm}</td>

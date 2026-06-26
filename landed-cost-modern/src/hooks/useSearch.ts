@@ -99,7 +99,6 @@ export function useSearch(
 
     // Collect all results (one result per matching row)
     const lookupResults: LookupResult[] = []
-    const foundTerms = new Set<string>()
 
     // Process all search terms using the pre-built index
     for (const term of searchTerms) {
@@ -137,11 +136,11 @@ export function useSearch(
         return source && outputColumns.some(col => source.columns.includes(col))
       })
 
-      // Create a result for each matching row, but collapse rows that are
-      // identical across all output columns. Source files often have several
-      // rows per item code (e.g. PC10/PC20/PC50 variants); when they carry the
-      // same cost they are redundant duplicates. Rows with genuinely different
-      // costs are still kept so the user can see the discrepancy.
+      // Emit this term's rows inline (or one not-found row below) so results stay
+      // in the SAME order as the pasted list — a column can be round-tripped
+      // to/from Excel and still line up. Truly-identical duplicate rows are
+      // collapsed; genuinely different costs are kept.
+      let emitted = 0
       if (validMatches.length > 0) {
         const seenOutputs = new Set<string>()
 
@@ -178,8 +177,6 @@ export function useSearch(
           if (seenOutputs.has(dedupKey)) continue
           seenOutputs.add(dedupKey)
 
-          foundTerms.add(term)
-
           // Add this as a separate result
           lookupResults.push({
             searchTerm: term,
@@ -187,16 +184,15 @@ export function useSearch(
             found: true,
             sourceFile: source.name
           })
+          emitted++
         }
       }
-    }
 
-    // Add not found entries with closest match diagnostics
-    for (const term of searchTerms) {
-      if (!foundTerms.has(term)) {
+      // Nothing matched (or every match was a duplicate) -> one not-found row in
+      // place, with closest-match diagnostics, preserving input order.
+      if (emitted === 0) {
         const notFoundResult: LookupResult = { searchTerm: term, values: {}, found: false }
 
-        // Find closest matches using optimized function
         if (showDiagnostics) {
           const closestMatches = findClosestMatches(
             searchIndex,
